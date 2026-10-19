@@ -1,9 +1,0 @@
-# Python 3.11
-numpy==2.4.6
-pandas==3.0.6
-pillow==12.3.0
-tqdm==4.70.1
-
-# notebooks
-ipykernel==7.4.0
-ipywidgets==8.1.9
