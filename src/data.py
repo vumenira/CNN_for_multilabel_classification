@@ -93,7 +93,10 @@ class DataModule(L.LightningDataModule):
         if stage in ("fit", "validate"):
             folds = pd.read_csv(FOLDS_PATH)
             is_val = folds.fold == self.fold
+            if not is_val.any():
+                raise ValueError(f"Fold {self.fold} is absent from {FOLDS_PATH}")
             train_tf = train_transforms(self.size, self.mean, self.std)
+            train_tf.set_random_seed(torch.initial_seed() % 2**32)
             self.train_ds = ImageDataset(folds[~is_val], train_tf, DATA_DIR / "train")
             self.val_ds = ImageDataset(folds[is_val], eval_tf, DATA_DIR / "train")
         if stage == "predict":

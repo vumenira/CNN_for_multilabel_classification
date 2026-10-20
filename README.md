@@ -28,7 +28,10 @@ data/
 
 ## MLflow
 
-Runs are stored in `mlruns/` at the repo root. To open the UI:
+Runs are stored in `mlruns/` at the repo root, in the `dl_lab-2` experiment. Each run logs
+hyperparameters, train/validation loss, macro F1, per-class validation F1, learning rate,
+gradient norms, architecture and source files. Checkpoints are saved only to `models/<run_id>/`.
+To open the UI:
 
 ```bash
 uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
