@@ -102,16 +102,16 @@ class DataModule(L.LightningDataModule):
         if stage == "predict":
             self.test_ds = ImageDataset(pd.read_csv(DATA_DIR / "test.csv"), eval_tf, DATA_DIR / "test")
 
-    def _loader(self, ds: Dataset, train: bool = False) -> DataLoader:
+    def loader(self, ds: Dataset, train: bool = False) -> DataLoader:
         return DataLoader(ds, batch_size=self.batch_size, shuffle=train, drop_last=train,
                           num_workers=self.num_workers, persistent_workers=self.num_workers > 0,
                           worker_init_fn=seed_worker)
 
     def train_dataloader(self):
-        return self._loader(self.train_ds, train=True)
+        return self.loader(self.train_ds, train=True)
 
     def val_dataloader(self):
-        return self._loader(self.val_ds)
+        return self.loader(self.val_ds)
 
     def predict_dataloader(self):
-        return self._loader(self.test_ds)
+        return self.loader(self.test_ds)

@@ -79,7 +79,7 @@ class CNN(nn.Module):
         return self.classifier(x)
 
 
-def train(fold=0, max_epochs=40, batch_size=64, num_workers=4, use_batchnorm=True, **classifier_kwargs):
+def train(fold=0, max_epochs=10, batch_size=64, num_workers=4, use_batchnorm=True, **classifier_kwargs):
     """classifier_kwargs go to MultiLabelClassifier, e.g. optimizer="Adam", initial_lr=3e-4."""
     L.seed_everything(SEED, workers=True)
     tracking.setup()
@@ -117,6 +117,22 @@ def train(fold=0, max_epochs=40, batch_size=64, num_workers=4, use_batchnorm=Tru
     print(f"MLflow experiment: {tracking.EXPERIMENT_NAME}; run: {logger.run_id}")
     print(f"Best checkpoint: {checkpoint.best_model_path}")
     return trainer
+
+
+def load(checkpoint):
+    """Model weights plus the same normalisation and fold as in training."""
+    model = MultiLabelClassifier.load_from_checkpoint(checkpoint, model=CNN())
+    datamodule = DataModule(**torch.load(checkpoint, weights_only=False)["datamodule_hyper_parameters"])
+    datamodule.setup("fit")
+    datamodule.setup("predict")
+    return model, datamodule
+
+
+def predict(model, loader) -> pd.DataFrame:
+    """Probabilities, one row per image_id."""
+    batches = L.Trainer(logger=False).predict(model, loader)
+    return pd.DataFrame(torch.cat([b["probabilities"] for b in batches]).numpy(),
+                        index=[i for b in batches for i in b["image_id"]], columns=LABELS)
 
 
 if __name__ == "__main__":

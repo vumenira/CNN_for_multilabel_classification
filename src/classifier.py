@@ -26,7 +26,6 @@ class MultiLabelClassifier(L.LightningModule):
         self.train_f1.update(logits.sigmoid(), targets.int())
         self.log("train_loss", loss, on_step=True, on_epoch=True,
                  prog_bar=True, batch_size=len(images))
-        # Lightning computes and resets the metric object at epoch end
         self.log("train_f1", self.train_f1, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
@@ -56,7 +55,6 @@ class MultiLabelClassifier(L.LightningModule):
                          on_step=True, on_epoch=True, batch_size=1)
 
     def configure_optimizers(self):
-        # optimizer is any class name from torch.optim: "AdamW", "Adam", "SGD", ...
         optimizer = getattr(torch.optim, self.hparams.optimizer)(
             self.parameters(), lr=self.hparams.initial_lr, weight_decay=self.hparams.weight_decay,
         )

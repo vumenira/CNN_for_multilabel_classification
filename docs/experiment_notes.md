@@ -17,4 +17,13 @@
 
 **Не робити:** `ToGray`, `HueSaturationValue`, `ColorJitter`, `VerticalFlip`, `Transpose`, `RandomRotate90`, `ElasticTransform`, `GridDistortion`, `RandomGridShuffle`.
 
-**Джерела:** лекція 7, §1–2; [Happywhale, 1 місце](https://github.com/knshnb/kaggle-happywhale-1st-place); [SIIM-ISIC Melanoma, 1 місце](https://arxiv.org/abs/2010.05351); [CMO](https://arxiv.org/abs/2112.00412); [LVIS](https://arxiv.org/abs/1908.03195); [Balestriero et al.](https://arxiv.org/abs/2204.03632).
+## Постобробка
+
+Зараз у `notebooks/custom_cnn.ipynb`, експеримент 2: TTA hflip → pHash ≤ 2, λ = 0.5 → пороги на клас → ієрархія вгору.
+
+1. TTA hflip: так / ні.
+2. pHash: відстань ≤ 2 / 4 / 6; λ 0 / 0.25 / 0.5 / 0.75 / 1.
+3. Пороги: спільний 0.5 / на клас; підбір на половині val, оцінка на іншій (у fold 0 лише 11 / 8 / 9 Moris / Motya / Biatrix).
+4. Ієрархія: без / вгору (Moris, Motya → Cat; Biatrix → Dog) / вниз (Moris, Motya лише з Cat; Biatrix лише з Dog).
+5. kNN по ембедингах CNN замість pHash.
+6. Ridge поверх ймовірностей (потребує OOF).
