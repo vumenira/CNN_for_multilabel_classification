@@ -20,8 +20,7 @@
 8. `WeightedRandomSampler` для рідкісних.
 9. Розмір входу: 224 / 240×288 / більший.
 10. `Normalize`: 0.5 / статистики train.
-11. `97098f` з міткою Moris і без неї.
-12. TTA з `HorizontalFlip`.
+11. TTA з `HorizontalFlip`.
 
 **Не робити:** `ToGray`, `HueSaturationValue`, `ColorJitter`, `VerticalFlip`, `Transpose`, `RandomRotate90`, `ElasticTransform`, `GridDistortion`, `RandomGridShuffle`.
 
@@ -39,3 +38,19 @@ Kaggle public: baseline 0.324, постобробка 0.445.
 4. Ієрархія: без / вгору (Moris, Motya → Cat; Biatrix → Dog) / вниз (Moris, Motya лише з Cat; Biatrix лише з Dog).
 5. kNN по ембедингах CNN замість pHash.
 6. Ridge поверх ймовірностей (потребує OOF).
+
+## Transfer learning
+
+Архітектура: `docs/transfer_learning.md`.
+
+
+1. ConvNeXt-B in22k (`convnext_base.fb_in22k_ft_in1k_384`), вхід 384.
+2. Постобробка, як для CNN.
+3. EffNet-B5 NS (`tf_efficientnet_b5.ns_jft_in1k`), вхід 456; ансамбль з п. 1.
+4. ConvNeXt-B DINOv3 (`convnext_base.dinov3_lvd1689m`), вхід 384: архітектура як у п. 1, різниця лише в передтренуванні; кандидат в ансамбль.
+5. Контроль: EffNet-B1 in1k (модель викладача), вхід 240.
+7. Lr для backbone менший, ніж для голови; `drop_path_rate`.
+8. kNN по ембедингах замість pHash.
+9. Фінал: навчання на всіх 5 фолдах.
+
+**Не робити:** зовнішні дані; ваги не з timm, крім ImageNet; ручне перемаркування;
