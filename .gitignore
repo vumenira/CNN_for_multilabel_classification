@@ -4,3 +4,6 @@
 .ipynb_checkpoints/
 __pycache__/
 mlruns/
+models/
+submission/
+!/data/folds.csv

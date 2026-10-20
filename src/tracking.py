@@ -1,8 +1,8 @@
-from pathlib import Path
-
 import mlflow
 
-MLRUNS_DIR = Path(__file__).resolve().parents[1] / "mlruns"
+from src.config import ROOT
+
+MLRUNS_DIR = ROOT / "mlruns"
 TRACKING_URI = f"sqlite:///{MLRUNS_DIR / 'mlflow.db'}"
 ARTIFACTS_DIR = MLRUNS_DIR / "artifacts"
 EXPERIMENT_NAME = "dl_lab-2"
