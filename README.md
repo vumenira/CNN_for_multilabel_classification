@@ -43,10 +43,10 @@ uv run python -m src.cnn
 
 ## Experiments
 
-`notebooks/custom_cnn.ipynb` is the experiment log: each section trains (or reuses a checkpoint), writes `models/<run_id>/submission*.csv` and submits it with the kaggle CLI.
+`notebooks/custom_cnn.ipynb` is the experiment log: each section trains, writes `models/<run_id>/submission*.csv` and submits it with the kaggle CLI.
 
 1. Baseline CNN, threshold 0.5.
-2. Post-processing on the same checkpoint: TTA hflip → pHash ≤ 2 blend with train labels → per-class thresholds on fold 0 → named animals imply their species.
+2. Post-processing on the same model: TTA hflip → pHash ≤ 2 blend with train labels → per-class thresholds on fold 0 → named animals imply their species.
 
 ## MLflow
 
@@ -54,4 +54,4 @@ uv run python -m src.cnn
 uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db
 ```
 
-Experiment `dl_lab-2`. Each run has hyperparameters, losses, macro and per-class F1, LR, gradient norms per layer, architecture and source code.
+Experiment `dl_lab-2`. 

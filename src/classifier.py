@@ -1,4 +1,5 @@
 import lightning as L
+import pandas as pd
 import torch
 from torch import nn
 from torchmetrics.classification import MultilabelF1Score
@@ -67,3 +68,10 @@ class MultiLabelClassifier(L.LightningModule):
         )
         return {"optimizer": optimizer,
                 "lr_scheduler": {"scheduler": scheduler, "interval": "epoch"}}
+
+
+def predict(trainer, **kwargs) -> pd.DataFrame:
+    """Probabilities of the trained model, one row per image_id."""
+    batches = trainer.predict(trainer.lightning_module, **kwargs)
+    return pd.DataFrame(torch.cat([b["probabilities"] for b in batches]).numpy(),
+                        index=[i for b in batches for i in b["image_id"]], columns=LABELS)
