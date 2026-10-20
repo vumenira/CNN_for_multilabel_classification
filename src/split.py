@@ -2,10 +2,9 @@ import numpy as np
 import pandas as pd
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 
-from src.config import DATA_DIR, FOLDS_PATH, LABELS
+from src.config import DATA_DIR, FOLDS_PATH, LABELS, SEED
 
 N_FOLDS = 5
-SEED = 42
 
 
 def assign_folds(labels: pd.DataFrame, n_folds: int = N_FOLDS, seed: int = SEED) -> np.ndarray:

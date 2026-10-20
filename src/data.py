@@ -16,12 +16,15 @@ def channel_stats(paths) -> tuple[np.ndarray, np.ndarray]:
     """Per-channel mean and std of pixels in [0, 1] over all given images."""
     total, total_sq, n = np.zeros(3), np.zeros(3), 0
     for path in paths:
-        px = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64).reshape(-1, 3) / 255
+        px = (
+            np.asarray(Image.open(path).convert("RGB"), dtype=np.float64).reshape(-1, 3)
+            / 255
+        )
         total += px.sum(0)
-        total_sq += (px ** 2).sum(0)
+        total_sq += (px**2).sum(0)
         n += len(px)
     mean = total / n
-    return mean, np.sqrt(total_sq / n - mean ** 2)
+    return mean, np.sqrt(total_sq / n - mean**2)
 
 
 def eval_transforms(size: int, mean, std) -> A.Compose:
@@ -61,8 +64,12 @@ class ImageDataset(Dataset):
     def __init__(self, df: pd.DataFrame, transform: A.Compose, img_dir: Path):
         self.paths = [img_dir / f"{i}.jpg" for i in df.image_id]
         self.ids = df.image_id.tolist()
-        has_labels = any(c in df.columns for c in LABELS)  
-        self.labels = torch.from_numpy(df[LABELS].to_numpy(np.float32)) if has_labels else torch.zeros((len(df), len(LABELS)))
+        has_labels = any(c in df.columns for c in LABELS)
+        self.labels = (
+            torch.from_numpy(df[LABELS].to_numpy(np.float32))
+            if has_labels
+            else torch.zeros((len(df), len(LABELS)))
+        )
         self.transform = transform
 
     def __len__(self):
@@ -81,7 +88,15 @@ def seed_worker(_worker_id: int):
 
 
 class DataModule(L.LightningDataModule):
-    def __init__(self, mean, std, fold: int = 0, size: int = 224, batch_size: int = 64, num_workers: int = 4):
+    def __init__(
+        self,
+        mean,
+        std,
+        fold: int = 0,
+        size: int = 224,
+        batch_size: int = 64,
+        num_workers: int = 4,
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.mean, self.std = mean, std
@@ -100,12 +115,20 @@ class DataModule(L.LightningDataModule):
             self.train_ds = ImageDataset(folds[~is_val], train_tf, DATA_DIR / "train")
             self.val_ds = ImageDataset(folds[is_val], eval_tf, DATA_DIR / "train")
         if stage == "predict":
-            self.test_ds = ImageDataset(pd.read_csv(DATA_DIR / "test.csv"), eval_tf, DATA_DIR / "test")
+            self.test_ds = ImageDataset(
+                pd.read_csv(DATA_DIR / "test.csv"), eval_tf, DATA_DIR / "test"
+            )
 
     def loader(self, ds: Dataset, train: bool = False) -> DataLoader:
-        return DataLoader(ds, batch_size=self.batch_size, shuffle=train, drop_last=train,
-                          num_workers=self.num_workers, persistent_workers=self.num_workers > 0,
-                          worker_init_fn=seed_worker)
+        return DataLoader(
+            ds,
+            batch_size=self.batch_size,
+            shuffle=train,
+            drop_last=train,
+            num_workers=self.num_workers,
+            persistent_workers=self.num_workers > 0,
+            worker_init_fn=seed_worker,
+        )
 
     def train_dataloader(self):
         return self.loader(self.train_ds, train=True)
