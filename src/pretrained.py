@@ -85,3 +85,17 @@ def train(
     print(f"MLflow experiment: {tracking.EXPERIMENT_NAME}; run: {logger.run_id}")
     print(f"Best checkpoint: {checkpoint.best_model_path}")
     return trainer
+
+
+def load(checkpoint, model_name):
+    """Fine-tuned model plus the same normalisation, size and fold as in training."""
+    net = timm.create_model(model_name, num_classes=len(LABELS))
+    model = MultiLabelClassifier.load_from_checkpoint(checkpoint, model=net)
+    datamodule = DataModule(
+        **torch.load(checkpoint, map_location="cpu", mmap=True, weights_only=False)[
+            "datamodule_hyper_parameters"
+        ]
+    )
+    datamodule.setup("validate")
+    datamodule.setup("predict")
+    return model, datamodule

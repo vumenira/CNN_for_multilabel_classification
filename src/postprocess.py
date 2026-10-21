@@ -51,6 +51,21 @@ def best_thresholds(probs: pd.DataFrame, targets: pd.DataFrame) -> pd.Series:
     return pd.Series(grid[f1.argmax(0).numpy()], index=LABELS)
 
 
+def best_combination(
+    probs: pd.DataFrame, thresholds: pd.Series, combos: np.ndarray
+) -> pd.DataFrame:
+    """Best of the label combinations seen in train (rows of combos).
+
+    A combination scores Σ logit(p) − logit(threshold) over its positive classes,
+    so whatever the thresholds give stays whenever it is one of combos.
+    """
+    scores = torch.logit(torch.tensor(probs.to_numpy()), eps=1e-6) - torch.logit(
+        torch.tensor(thresholds.to_numpy())
+    )
+    best = (scores @ torch.tensor(combos.T, dtype=scores.dtype)).argmax(1)
+    return pd.DataFrame(combos[best.numpy()], index=probs.index, columns=LABELS)
+
+
 def add_parents(pred: pd.DataFrame) -> pd.DataFrame:
     """A named animal implies its species."""
     return pred.assign(

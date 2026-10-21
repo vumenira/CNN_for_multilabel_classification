@@ -108,9 +108,9 @@ class MultiLabelClassifier(L.LightningModule):
         }
 
 
-def predict(trainer, **kwargs) -> pd.DataFrame:
-    """Probabilities of the trained model, one row per image_id."""
-    batches = trainer.predict(trainer.lightning_module, **kwargs)
+def predict(trainer, model=None, **kwargs) -> pd.DataFrame:
+    """Probabilities of the trained model (or of model, for a fresh Trainer), one row per image_id."""
+    batches = trainer.predict(model or trainer.lightning_module, **kwargs)
     return pd.DataFrame(
         torch.cat([b["probabilities"] for b in batches]).numpy(),
         index=[i for b in batches for i in b["image_id"]],
