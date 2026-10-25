@@ -66,10 +66,10 @@ From `notebooks/EDA.ipynb`.
 - File size: mean 56.99 KB in train, 56.89 KB in test.
 - Brightness: median 0.462 vs 0.464.
 - Contrast: 0.216 in both.
-- So no shift is visible in simple statistics. Section 9 checks this with a model.
+- So no shift is visible in simple statistics. Section 9 confirms this with a model: test and train photos cannot be told apart (AUC 0.502).
 
 **The named animals are the whole game**
-- They make up 3 of the 5 labels in macro F1, but only 139 train photos.
+- They make up 3 of the 5 labels in macro F1, but only 125 train photos (139 labels: 14 photos show two of them).
 - On the public LB one wrong named-animal photo costs about 0.001–0.002 macro F1, while one wrong Cat/Dog photo costs about 0.00003.
 - Moris and Motya share indoor backgrounds. Biatrix also appears outdoors and in a car.
 - From ConvNeXt-B's predicted probabilities, the test set has about twice the train share of named animals: the probabilities sum to 164 / 130 / 170 Moris / Motya / Biatrix photos, against 85 / 64 / 62 at the train share.
@@ -146,7 +146,7 @@ What each step did on val:
   - For the custom CNNs, val F1 at 0.5 matches the LB within 0.01.
   - For the strong model, val is higher than the LB. Val cannot rank the ensemble against ConvNeXt-B either (section 11).
   - The most likely reason is the larger share of named animals in the test set: they are where ConvNeXt-B still errs.
-  - Adversarial validation (section 9) checks whether test photos look different from train.
+  - Adversarial validation (section 9) finds no difference between train and test photos (AUC 0.502), so the gap is not a change in the images.
 
 ## 4. Models
 
@@ -387,8 +387,50 @@ The classifier logs the L2 norm of the gradient of every top-level module at eac
 - **Scoring:** every photo gets an out-of-fold P(test) from the last-epoch model, which is not selected on the held-out fold. ROC AUC near 0.5 means the two sets are indistinguishable.
 - **A second check without pixels:** gradient boosting on file size, JPEG quantisation (re-encoding), and per-channel mean and std, using the same folds.
 
-<!-- AV-RESULTS -->
-_Results to be added._
+**Results** (`results/adversarial/`)
+
+| Model | Out-of-fold ROC AUC, test vs train |
+|---|---|
+| CNN, all 30,933 photos (95% bootstrap interval) | **0.502** [0.495, 0.509] |
+| CNN, per fold | 0.500 / 0.509 / 0.509 / 0.506 / 0.491 |
+| Gradient boosting on file size, JPEG quantisation, colour mean and std | 0.496 |
+
+![Out-of-fold P(test)](docs/figures/av_hist.png)
+
+![Adversarial-validation curves](docs/figures/av_curves.png)
+
+- **The model cannot tell test from train.** The interval contains 0.5, and the folds scatter around it (0.491–0.509).
+- **It learns nothing beyond the class prior.**
+  - Test is 60.4% of the photos, so a constant P(test) = 0.604 has a log loss of 0.6715.
+  - The held-out loss ends at 0.6716–0.6729, no better than that constant.
+  - Train AUC creeps up to 0.50–0.52 in the last epochs; held-out AUC does not follow.
+- **Both sets get the same P(test):** mean 0.603, std 0.016, range 0.45–0.78.
+- **No shift without pixels either.**
+  - Every photo, train and test, has the same JPEG quantisation table, so both sets went through the same encoding.
+  - File size and colour statistics have the same distributions; gradient boosting on them scores AUC 0.496.
+- **The extremes differ in colour, not content.**
+  - P(test) rises with how red a photo is (Spearman 0.30). The most test-like train photos have red backgrounds; the most train-like test photos are green, yellow or blue.
+  - The two sets have nearly the same mean redness (0.050 vs 0.048), so this ranking barely separates them.
+
+![Most test-like train photos and most train-like test photos](docs/figures/av_extremes.png)
+
+**P(test) of train photos by label** (`likeness_by_label.csv`)
+
+| Train photos | Count | Mean P(test) | Median | Max |
+|---|---|---|---|---|
+| Cat only | 4,989 | 0.604 | 0.603 | 0.763 |
+| Dog only | 4,984 | 0.602 | 0.602 | 0.732 |
+| Named animal | 125 | 0.609 | 0.610 | 0.661 |
+| No label | 2,162 | 0.602 | 0.601 | 0.724 |
+
+- Named-animal photos are the only group that stands out. The model ranks them above the other train photos with AUC 0.63 (Mann–Whitney p < 1e-6). Photos of one animal are not independent, so the p-value is optimistic.
+- This matches the label shift in section 1: the test set has about twice the train share of named animals, so a photo of Moris, Motya or Biatrix is more likely to be a test photo.
+- The effect is small (0.609 vs 0.603), and it is not colour: named-animal photos are less red than the rest.
+
+**What it means for the project**
+- Train and test images come from one distribution. The random 5-fold split (section 3) is a valid proxy for the test set, and no test-like validation subset or importance weighting is needed.
+- The only difference is in the labels: more named animals in test. That, and 8–11 rare-class positives on val, explain why val is above the LB for ConvNeXt-B (0.9990 vs 0.97266). A change in the images does not.
+- Adversarial validation finds only the shift its model can learn. A CNN trained from scratch for 10 epochs may miss subtle differences that a pretrained backbone would find.
 
 ## 10. Grad-CAM (`src/gradcam.py`)
 
@@ -451,10 +493,11 @@ The selected w = 0.725 lies between the 0.70 and 0.75 grid rows.
 
 ## 12. Conclusions
 
-- **The decisive factor is pretrained features.** On the same validation fold, ConvNeXt-B scores 0.999 macro F1 at 0.5. The best CNN trained from scratch scores 0.584: it learned from 10k photos with only 139 named-animal photos.
+- **The decisive factor is pretrained features.** On the same validation fold, ConvNeXt-B scores 0.999 macro F1 at 0.5. The best CNN trained from scratch scores 0.584: it learned from 9,808 photos with only 99 named-animal photos.
 - **For the custom CNN, optimisation mattered more than size.** The best configuration (lr 3e-4, `pos_weight` sqrt, shallow, ReLU, BN) has *fewer* parameters than the baseline and reaches val AP 0.784 vs 0.43–0.49.
 - **Thresholds are worth more than any architecture change** for rare labels. Post-processing took the baseline from 0.324 to 0.445 on the LB and ConvNeXt-B from 0.973 to 0.980.
 - **Validation with 8–11 positives per rare class is noisy.** AP is the better selection metric, and differences under about 0.03 AP between configurations are within fold-to-fold variation.
+- **Train and test photos come from one distribution** (adversarial AUC 0.502). The test set differs only in its labels, with about twice the share of named animals.
 - **Ensembling the CNN with ConvNeXt-B did not help** (LB 0.97287 vs 0.98045 for ConvNeXt-B with post-processing): a much weaker model only adds noise to one at the ceiling, and val is too small to show the difference.
 
 ## Reproduce
