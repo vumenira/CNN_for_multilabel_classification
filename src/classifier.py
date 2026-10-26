@@ -2,7 +2,7 @@ import lightning as L
 import pandas as pd
 import torch
 from torch import nn
-from torchmetrics.classification import MultilabelF1Score
+from torchmetrics.classification import MultilabelAveragePrecision, MultilabelF1Score
 
 from src.config import LABELS
 
@@ -21,9 +21,12 @@ class MultiLabelClassifier(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.model = model
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        self.criterion = nn.BCEWithLogitsLoss(
+            pos_weight=None if pos_weight is None else torch.tensor(pos_weight, dtype=torch.float32)
+        )
         self.train_f1 = MultilabelF1Score(num_labels=len(LABELS), average="macro")
         self.val_f1 = MultilabelF1Score(num_labels=len(LABELS), average=None)
+        self.val_ap = MultilabelAveragePrecision(num_labels=len(LABELS), average=None)
 
     def forward(self, x):
         return self.model(x)
@@ -32,7 +35,7 @@ class MultiLabelClassifier(L.LightningModule):
         images, targets, _ = batch
         logits = self(images)
         loss = self.criterion(logits, targets)
-        self.train_f1.update(logits.sigmoid(), targets.int())
+        self.train_f1.update(logits.float().sigmoid(), targets.int())
         self.log(
             "train_loss",
             loss,
@@ -48,7 +51,9 @@ class MultiLabelClassifier(L.LightningModule):
         images, targets, _ = batch
         logits = self(images)
         loss = self.criterion(logits, targets)
-        self.val_f1.update(logits.sigmoid(), targets.int())
+        probs = logits.float().sigmoid()
+        self.val_f1.update(probs, targets.int())
+        self.val_ap.update(probs, targets.int())
         self.log(
             "val_loss",
             loss,
@@ -66,10 +71,17 @@ class MultiLabelClassifier(L.LightningModule):
             batch_size=1,
         )
         self.val_f1.reset()
+        ap = self.val_ap.compute()
+        self.log("val_ap", ap.mean(), prog_bar=True, batch_size=1)
+        self.log_dict(
+            {f"val_ap_{label}": score for label, score in zip(LABELS, ap)},
+            batch_size=1,
+        )
+        self.val_ap.reset()
 
     def predict_step(self, batch, batch_idx):
         images, _, ids = batch
-        return {"image_id": ids, "probabilities": self(images).sigmoid()}
+        return {"image_id": ids, "probabilities": self(images).float().sigmoid()}
 
     def on_before_optimizer_step(self, optimizer):
         for name, module in self.model.named_children():
