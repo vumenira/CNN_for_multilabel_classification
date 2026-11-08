@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 from src import tracking
 from src.classifier import MultiLabelClassifier
 from src.config import FOLDS_PATH, LABELS, MODELS_DIR, ROOT, SEED
-from src.data import DataModule
+from src.data import DataModule, class_pos_weights
 
 
 def train(
@@ -21,6 +21,10 @@ def train(
     batch_size=16,
     num_workers=None,
     initial_lr=1e-4,
+    head_epochs=1,
+    head_lr=1e-3,
+    warmup_steps=300,
+    pos_weight="sqrt",
     cache=False,
     callbacks=(),
     trainer_kwargs=None,
@@ -44,7 +48,15 @@ def train(
         num_workers=num_workers,
         cache=cache,
     )
-    model = MultiLabelClassifier(net, initial_lr=initial_lr, **classifier_kwargs)
+    model = MultiLabelClassifier(
+        net,
+        initial_lr=initial_lr,
+        head_epochs=head_epochs,
+        head_lr=head_lr,
+        warmup_steps=warmup_steps,
+        pos_weight=class_pos_weights(fold, pos_weight),
+        **classifier_kwargs,
+    )
     logger = MLFlowLogger(
         experiment_name=tracking.EXPERIMENT_NAME,
         tracking_uri=tracking.TRACKING_URI,
@@ -58,6 +70,7 @@ def train(
             "max_epochs": max_epochs,
             "model_name": model_name,
             "size": size,
+            "pos_weight_mode": pos_weight,
             "labels": LABELS,
             "num_parameters": sum(p.numel() for p in net.parameters()),
             "folds_sha256": hashlib.sha256(FOLDS_PATH.read_bytes()).hexdigest(),
