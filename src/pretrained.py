@@ -13,6 +13,12 @@ from src.config import FOLDS_PATH, LABELS, MODELS_DIR, ROOT, SEED
 from src.data import DataModule, class_pos_weights
 
 
+def default_precision():
+    if not torch.cuda.is_available():
+        return "32-true"
+    return "bf16-mixed" if torch.cuda.get_device_capability()[0] >= 8 else "16-mixed"
+
+
 def train(
     model_name,
     size,
@@ -20,6 +26,7 @@ def train(
     max_epochs=10,
     batch_size=16,
     num_workers=None,
+    precision=None,
     initial_lr=1e-4,
     head_epochs=1,
     head_lr=1e-3,
@@ -34,7 +41,8 @@ def train(
 ):
     L.seed_everything(SEED, workers=True)
     tracking.setup()
-    num_workers = min(4, os.cpu_count()) if num_workers is None else num_workers
+    num_workers = min(8, os.cpu_count()) if num_workers is None else num_workers
+    precision = precision or default_precision()
     net = timm.create_model(
         model_name, pretrained=True, num_classes=len(LABELS), drop_path_rate=0.1
     )
@@ -71,6 +79,9 @@ def train(
             "model_name": model_name,
             "size": size,
             "pos_weight_mode": pos_weight,
+            "precision": precision,
+            "num_workers": num_workers,
+            "gpu": torch.cuda.get_device_name() if torch.cuda.is_available() else "cpu",
             "labels": LABELS,
             "num_parameters": sum(p.numel() for p in net.parameters()),
             "folds_sha256": hashlib.sha256(FOLDS_PATH.read_bytes()).hexdigest(),
@@ -92,7 +103,7 @@ def train(
         max_epochs=max_epochs,
         accelerator="auto",
         devices=1,
-        precision="16-mixed" if torch.cuda.is_available() else "32-true",
+        precision=precision,
         logger=logger,
         callbacks=[checkpoint, LearningRateMonitor(logging_interval="epoch"), *callbacks],
         log_every_n_steps=20,
