@@ -8,7 +8,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 
 from src import tracking
 from src.classifier import MultiLabelClassifier
-from src.config import FOLDS_PATH, LABELS, ROOT, SEED
+from src.config import FOLDS_PATH, MODELS_DIR, LABELS, ROOT, SEED
 from src.data import DataModule
 
 
@@ -64,7 +64,7 @@ def train(
         logger.experiment.log_artifact(logger.run_id, str(path), "source")
 
     checkpoint = ModelCheckpoint(
-        dirpath=ROOT / "models" / logger.run_id,
+        dirpath=MODELS_DIR / logger.run_id,
         filename=model_name + "-{epoch:02d}-{val_f1:.4f}",
         monitor="val_f1",
         mode="max",
