@@ -1,0 +1,9 @@
+# Installed on top of Colab's preinstalled torch / numpy / pandas, which are deliberately not listed.
+lightning
+torchmetrics
+timm
+albumentations>=2.0.8
+iterative-stratification
+mlflow
+imagehash
+kaggle

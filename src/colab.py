@@ -1,13 +1,12 @@
 """Colab plumbing: Drive, .env, dataset download and SQLite backups."""
 
 import os
+import sys
 import shutil
 import sqlite3
 import subprocess
 from contextlib import closing
 from pathlib import Path
-
-from src.config import DATA_DIR
 
 DRIVE_ROOT = Path("/content/drive")
 DRIVE_DIR = DRIVE_ROOT / "MyDrive" / "dl_lab2"
@@ -48,9 +47,10 @@ def ensure_dataset(drive_dir: Path | None = None) -> None:
 
     With drive_dir the downloaded zip is kept there, so later sessions skip the Kaggle download.
     """
+    from src.config import DATA_DIR
     if (DATA_DIR / "train").is_dir() and (DATA_DIR / "test.csv").exists():
         return
-    DATA_DIR.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     archive = DATA_DIR / "cats-and-dogs.zip"
     saved = drive_dir / "cats-and-dogs.zip" if drive_dir else None
     if saved is not None and saved.exists():
@@ -86,3 +86,30 @@ def restore_sqlite(destination: Path, backup: Path) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(backup, destination)
     return True
+
+
+def in_colab() -> bool:
+    return "google.colab" in sys.modules
+
+
+def setup() -> Path | None:
+    if not in_colab():
+        return None
+    
+    drive_ok = mount_drive()
+    os.environ.setdefault("DATA_DIR", "/content/data")
+    os.environ.setdefault("MODELS_DIR", "/content/models")
+    results = DRIVE_DIR / "results" if drive_ok else Path("/content/results")
+    os.environ.setdefault("RESULTS_DIR", str(results))
+
+    if "src.config" in sys.modules:
+        raise RuntimeError("src.config was imported before colab.setup(): restart the session and run setup() first")
+
+    env_file = DRIVE_DIR / ".env"
+    if drive_ok and env_file.exists():
+        print("secrets from Drive:", load_env(env_file))
+    ensure_dataset(DRIVE_DIR if drive_ok else None)
+
+    from src.config import DATA_DIR, MODELS_DIR, RESULTS_DIR
+    print(f"DATA_DIR={DATA_DIR}\nMODELS_DIR={MODELS_DIR}\nRESULTS_DIR={RESULTS_DIR}")
+    return DRIVE_DIR if drive_ok else None    
