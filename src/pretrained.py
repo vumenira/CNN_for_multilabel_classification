@@ -1,4 +1,5 @@
 import hashlib
+import os
 
 import lightning as L
 import timm
@@ -8,7 +9,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 
 from src import tracking
 from src.classifier import MultiLabelClassifier
-from src.config import FOLDS_PATH, MODELS_DIR, LABELS, ROOT, SEED
+from src.config import FOLDS_PATH, LABELS, MODELS_DIR, ROOT, SEED
 from src.data import DataModule
 
 
@@ -18,17 +19,18 @@ def train(
     fold=0,
     max_epochs=10,
     batch_size=16,
-    num_workers=4,
+    num_workers=None,
     initial_lr=1e-4,
+    cache=False,
+    callbacks=(),
+    trainer_kwargs=None,
+    ckpt_path=None,
+    run_id=None,
     **classifier_kwargs,
 ):
-    """Fine-tune a timm model, e.g. train("convnext_base.fb_in22k_ft_in1k_384", size=384).
-
-    classifier_kwargs go to MultiLabelClassifier.
-    """
     L.seed_everything(SEED, workers=True)
     tracking.setup()
-
+    num_workers = min(4, os.cpu_count()) if num_workers is None else num_workers
     net = timm.create_model(
         model_name, pretrained=True, num_classes=len(LABELS), drop_path_rate=0.1
     )
@@ -40,6 +42,7 @@ def train(
         size=size,
         batch_size=batch_size,
         num_workers=num_workers,
+        cache=cache,
     )
     model = MultiLabelClassifier(net, initial_lr=initial_lr, **classifier_kwargs)
     logger = MLFlowLogger(
@@ -47,6 +50,7 @@ def train(
         tracking_uri=tracking.TRACKING_URI,
         run_name=f"{model_name}-fold{fold}",
         tags={"model": model_name, "fold": str(fold)},
+        run_id=run_id,
     )
     logger.log_hyperparams(
         {
@@ -77,11 +81,12 @@ def train(
         devices=1,
         precision="16-mixed" if torch.cuda.is_available() else "32-true",
         logger=logger,
-        callbacks=[checkpoint, LearningRateMonitor(logging_interval="epoch")],
+        callbacks=[checkpoint, LearningRateMonitor(logging_interval="epoch"), *callbacks],
         log_every_n_steps=20,
         num_sanity_val_steps=0,
+        **(trainer_kwargs or {}),
     )
-    trainer.fit(model, datamodule=datamodule)
+    trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
     print(f"MLflow experiment: {tracking.EXPERIMENT_NAME}; run: {logger.run_id}")
     print(f"Best checkpoint: {checkpoint.best_model_path}")
     return trainer
