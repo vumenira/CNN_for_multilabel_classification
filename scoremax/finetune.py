@@ -29,18 +29,62 @@ def set_lr(optimizer, step, total, warmup):
         group["lr"] = group["base_lr"] * factor
 
 
+VIEWS = [(0.0, 0.0), (0.0, 0.35), (0.35, 0.0), (0.35, 0.35), (0.175, 0.175)]
+VIEW_SIDE = 0.65
+ALLOWED = torch.tensor([0, 1, 2, 5, 9, 13, 18, 23])
+BITS = torch.tensor([1.0, 2.0, 4.0, 8.0, 16.0])
+
+
+def forward(model, x):
+    feats = model.forward_head(model.forward_features(x), pre_logits=True)
+    return model.get_classifier()(feats).float(), feats.float()
+
+
 @torch.no_grad()
-def predict(model, dataset, size, mean, std, batch_size, dev):
+def predict(model, dataset, size, mean, std, batch_size, dev, emb=False, view=None):
     model.eval()
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=4)
-    out = []
+    out, embs = [], []
     for batch in loader:
         x = batch[0] if isinstance(batch, (list, tuple)) else batch
-        x = normalize(resize(to_float(x.to(dev, non_blocking=True)), size), mean, std)
+        x = to_float(x.to(dev, non_blocking=True))
+        if view is not None:
+            h, w = x.shape[2:]
+            top, left = int(view[0] * h), int(view[1] * w)
+            x = x[:, :, top : top + int(VIEW_SIDE * h), left : left + int(VIEW_SIDE * w)]
+        x = normalize(resize(x, size), mean, std)
         with autocast(dev):
-            logits = (model(x).float() + model(x.flip(3)).float()) / 2
-        out.append(logits.cpu())
-    return torch.cat(out).numpy()
+            l1, f1 = forward(model, x)
+            l2, f2 = forward(model, x.flip(3))
+        out.append(((l1 + l2) / 2).cpu())
+        if emb:
+            embs.append(((f1 + f2) / 2).cpu().half())
+    logits = torch.cat(out).numpy()
+    return (logits, torch.cat(embs).numpy()) if emb else logits
+
+
+def crop_views(model, split, rows, logits, size, mean, std, batch_size, dev, floor=0.01):
+    keep = np.flatnonzero((1 / (1 + np.exp(-logits[:, 2:]))).max(1) >= floor)
+    dataset = Images(split, np.asarray(rows)[keep])
+    views = [predict(model, dataset, size, mean, std, batch_size, dev, view=v) for v in VIEWS] if len(keep) else []
+    return keep, np.stack(views) if views else np.zeros((len(VIEWS), 0, len(LABELS)), np.float32)
+
+
+def mosaic(x, y, p_named, p_other):
+    b, dev = x.shape[0], x.device
+    perm = torch.randperm(b, device=dev)
+    both = torch.maximum(y, y[perm])
+    hard = (both > 0.5).float()
+    allowed = torch.isin((hard * BITS.to(dev)).sum(1).long(), ALLOWED.to(dev))
+    named = hard[:, 2:].any(1)
+    take = allowed & (perm != torch.arange(b, device=dev)) & (torch.rand(b, device=dev) < torch.where(named, p_named, p_other))
+    if not take.any():
+        return x, y
+    half = F.interpolate(x, scale_factor=0.5, mode="bilinear", antialias=True)
+    other = half[perm]
+    grid = torch.cat([torch.cat([half, other], 3), torch.cat([other, half], 3)], 2)
+    grid = F.interpolate(grid, x.shape[2:], mode="bilinear", align_corners=False)
+    return torch.where(take.view(b, 1, 1, 1), grid, x), torch.where(take.view(b, 1), both, y)
 
 
 def scores(logits, y):
@@ -92,8 +136,10 @@ def run_fold(a, fold, folds, pseudo, run_dir):
         for x, y in loader:
             set_lr(optimizer, step, total, warmup)
             x = to_float(x.to(dev, non_blocking=True))
-            x = normalize(augment(x, a.size, scale=(a.scale, 1.0)), mean, std)
             y = y.to(dev)
+            if a.mosaic:
+                x, y = mosaic(x, y, a.mosaic, a.mosaic / 5)
+            x = normalize(augment(x, a.size, scale=(a.scale, 1.0)), mean, std)
             if a.smooth:
                 y = y * (1 - a.smooth) + 0.5 * a.smooth
             with autocast(dev):
@@ -117,15 +163,41 @@ def run_fold(a, fold, folds, pseudo, run_dir):
                 row["ema"] = scores(predict(ema.module, val_ds, a.size, mean, std, a.bs * 2, dev), y_all[val_rows])
         log.append(row)
         print(f"fold {fold} {json.dumps(row)}", flush=True)
-    test_ds = Images("test", np.arange(a.limit or len(ids("test"))))
+    n_test = a.limit or len(ids("test"))
+    test_ds = Images("test", np.arange(n_test))
     tag = f"fold{fold}" if fold >= 0 else f"full{a.seed}"
-    for kind, net in (("raw", model), ("ema", ema.module if ema is not None else None)):
-        if net is None:
-            continue
+    big = a.bs * 2
+    if ema is not None and len(val_rows):
+        np.save(run_dir / f"{tag}_val_raw.npy", predict(model, val_ds, a.size, mean, std, big, dev))
+    net, kind = (ema.module, "ema") if ema is not None else (model, "raw")
+    if a.test_raw and ema is not None:
+        np.save(run_dir / f"{tag}_test_raw.npy", predict(model, test_ds, a.size, mean, std, big, dev))
+    test_logits, test_emb = predict(net, test_ds, a.size, mean, std, big, dev, emb=True)
+    np.save(run_dir / f"{tag}_test_{kind}.npy", test_logits)
+    if a.save_emb:
+        np.save(run_dir / f"{tag}_test_emb.npy", test_emb)
+    if a.limit:
+        check = predict(net, Images("test", np.arange(8)), a.size, mean, std, 8, dev)
+        with torch.no_grad(), autocast(dev):
+            x8 = normalize(resize(to_float(torch.stack([test_ds[i] for i in range(8)]).to(dev)), a.size), mean, std)
+            direct = ((net(x8).float() + net(x8.flip(3)).float()) / 2).cpu().numpy()
+        print("forward-vs-model max abs diff", float(np.abs(check - direct).max()), flush=True)
+    if len(val_rows):
+        if a.save_emb:
+            all_rows = np.arange(len(folds)) if not a.limit else np.concatenate([train_rows[: a.limit], val_rows])
+            train_logits, train_emb = predict(net, Images("train", all_rows), a.size, mean, std, big, dev, emb=True)
+            np.save(run_dir / f"{tag}_train_emb.npy", train_emb)
+            np.save(run_dir / f"{tag}_train_emb_rows.npy", all_rows)
+            val_logits = train_logits[np.searchsorted(all_rows, val_rows)] if not a.limit else train_logits[-len(val_rows) :]
+        else:
+            val_logits = predict(net, val_ds, a.size, mean, std, big, dev)
+        np.save(run_dir / f"{tag}_val_{kind}.npy", val_logits)
+    if a.crops:
+        keep, views = crop_views(net, "test", np.arange(n_test), test_logits, a.size, mean, std, big, dev)
+        np.savez(run_dir / f"{tag}_test_crops.npz", rows=keep, logits=views)
         if len(val_rows):
-            np.save(run_dir / f"{tag}_val_{kind}.npy", predict(net, val_ds, a.size, mean, std, a.bs * 2, dev))
-        if kind == "ema" or ema is None or a.test_raw:
-            np.save(run_dir / f"{tag}_test_{kind}.npy", predict(net, test_ds, a.size, mean, std, a.bs * 2, dev))
+            keep, views = crop_views(net, "train", val_rows, val_logits, a.size, mean, std, big, dev)
+            np.savez(run_dir / f"{tag}_val_crops.npz", rows=val_rows[keep], logits=views)
     if a.save_weights:
         torch.save((ema.module if ema is not None else model).state_dict(), run_dir / f"{tag}.pt")
     (run_dir / f"{tag}_log.json").write_text(json.dumps(log, indent=1))
@@ -158,6 +230,9 @@ if __name__ == "__main__":
     ap.add_argument("--val-every", type=int, default=1)
     ap.add_argument("--save-weights", type=int, default=0)
     ap.add_argument("--test-raw", type=int, default=0)
+    ap.add_argument("--save-emb", type=int, default=1)
+    ap.add_argument("--crops", type=int, default=1)
+    ap.add_argument("--mosaic", type=float, default=0.0)
     ap.add_argument("--limit", type=int)
     a = ap.parse_args()
     run_dir = OUT / a.name
