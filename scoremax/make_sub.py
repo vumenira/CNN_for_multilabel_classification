@@ -50,12 +50,16 @@ def describe(pred):
     return f"positives {dict(zip(LABELS, pred.sum(0).tolist()))} Moris&Motya {both}"
 
 
-def pseudo(test, lo, hi, others, seed=0):
+def pseudo(test, lo, hi, others, share=0.8, seed=0):
     p = sigmoid(test)
     confident = ((p <= lo) | (p >= hi)).all(1)
     pred = decode(test, [0.5] * 5)
-    named = confident & pred[:, 2:].any(1)
-    rest = np.flatnonzero(confident & ~pred[:, 2:].any(1))
+    named = np.zeros(len(p), bool)
+    for c in (2, 3, 4):
+        quota = int(share * p[:, c].sum())
+        ranked = np.argsort(-p[:, c])[:quota]
+        named[ranked[confident[ranked] & (pred[ranked, c] == 1)]] = True
+    rest = np.flatnonzero(confident & ~pred[:, 2:].any(1) & (p[:, 2:].max(1) < 0.01))
     rest = np.random.default_rng(seed).choice(rest, min(others, len(rest)), replace=False)
     rows = np.concatenate([np.flatnonzero(named), rest])
     frame = pd.DataFrame(pred[rows], columns=LABELS)
@@ -71,9 +75,9 @@ if __name__ == "__main__":
     ap.add_argument("--thr", type=float, nargs=5)
     ap.add_argument("--thr-scale", type=float, default=1.0)
     ap.add_argument("--pseudo")
-    ap.add_argument("--lo", type=float, default=0.03)
-    ap.add_argument("--hi", type=float, default=0.97)
-    ap.add_argument("--others", type=int, default=3000)
+    ap.add_argument("--lo", type=float, default=0.1)
+    ap.add_argument("--hi", type=float, default=0.9)
+    ap.add_argument("--others", type=int, default=1500)
     a = ap.parse_args()
     _, y = truth()
     runs, oof, test = ensemble(a.runs, a.space)
