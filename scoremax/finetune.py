@@ -124,7 +124,8 @@ def run_fold(a, fold, folds, pseudo, run_dir):
             continue
         if len(val_rows):
             np.save(run_dir / f"{tag}_val_{kind}.npy", predict(net, val_ds, a.size, mean, std, a.bs * 2, dev))
-        np.save(run_dir / f"{tag}_test_{kind}.npy", predict(net, test_ds, a.size, mean, std, a.bs * 2, dev))
+        if kind == "ema" or ema is None or a.test_raw:
+            np.save(run_dir / f"{tag}_test_{kind}.npy", predict(net, test_ds, a.size, mean, std, a.bs * 2, dev))
     if a.save_weights:
         torch.save((ema.module if ema is not None else model).state_dict(), run_dir / f"{tag}.pt")
     (run_dir / f"{tag}_log.json").write_text(json.dumps(log, indent=1))
@@ -156,6 +157,7 @@ if __name__ == "__main__":
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--val-every", type=int, default=1)
     ap.add_argument("--save-weights", type=int, default=0)
+    ap.add_argument("--test-raw", type=int, default=0)
     ap.add_argument("--limit", type=int)
     a = ap.parse_args()
     run_dir = OUT / a.name
